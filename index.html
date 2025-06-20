@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Colla Token Holders</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
         * {
             margin: 0;
@@ -138,6 +139,55 @@
             width: 14px;
             height: 14px;
             fill: currentColor;
+        }
+
+        .chart-container {
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 12px;
+            padding: 20px;
+            margin-bottom: 30px;
+            height: 300px;
+            position: relative;
+        }
+
+        .chart-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 15px;
+        }
+
+        .chart-title {
+            font-size: 16px;
+            color: #fff;
+            font-weight: 600;
+        }
+
+        .price-change {
+            font-size: 14px;
+            font-weight: 500;
+            padding: 4px 12px;
+            border-radius: 6px;
+        }
+
+        .price-change.positive {
+            background: rgba(16, 185, 129, 0.2);
+            color: #10b981;
+        }
+
+        .price-change.negative {
+            background: rgba(239, 68, 68, 0.2);
+            color: #ef4444;
+        }
+
+        .chart-wrapper {
+            height: calc(100% - 40px);
+            position: relative;
+        }
+
+        canvas {
+            max-height: 100%;
         }
 
         .stats-grid {
@@ -289,6 +339,16 @@
             </a>
         </div>
 
+        <div class="chart-container" id="chartContainer" style="display: none;">
+            <div class="chart-header">
+                <h3 class="chart-title">Price Chart (24h)</h3>
+                <div class="price-change" id="priceChange">-</div>
+            </div>
+            <div class="chart-wrapper">
+                <canvas id="priceChart"></canvas>
+            </div>
+        </div>
+
         <div id="content">
             <div class="loading">
                 <div class="loading-spinner"></div>
@@ -298,10 +358,14 @@
     </div>
 
     <script>
-        // IMPORTANT: Replace this with your actual Cloudflare Worker URL
-        // Example: 'https://colla-holders.your-username.workers.dev'
+        // Configuration
         const API_URL = 'https://collatholders.larsoui-dbc.workers.dev';
         const TOKEN_ADDRESS = 'C7heQqfNzdMbUFQwcHkL9FvdwsFsDRBnfwZDDyWYCLTZ';
+        
+        // Price history management
+        const PRICE_HISTORY_KEY = 'colla_price_history';
+        const MAX_DATA_POINTS = 48; // 24 hours with 30-minute intervals
+        let priceChart = null;
         
         function formatNumber(num) {
             return new Intl.NumberFormat('en-US').format(num);
@@ -319,7 +383,6 @@
         function copyToClipboard(text, event) {
             event.stopPropagation();
             
-            // Try modern clipboard API first
             if (navigator.clipboard && navigator.clipboard.writeText) {
                 navigator.clipboard.writeText(text).then(() => {
                     showCopyFeedback(event);
@@ -332,7 +395,6 @@
         }
 
         function fallbackCopy(text, event) {
-            // Fallback for older browsers
             const textArea = document.createElement("textarea");
             textArea.value = text;
             textArea.style.position = "fixed";
@@ -365,6 +427,142 @@
             }, 2000);
         }
 
+        // Price history functions
+        function getPriceHistory() {
+            const stored = localStorage.getItem(PRICE_HISTORY_KEY);
+            return stored ? JSON.parse(stored) : [];
+        }
+
+        function savePriceHistory(history) {
+            localStorage.setItem(PRICE_HISTORY_KEY, JSON.stringify(history));
+        }
+
+        function addPricePoint(price) {
+            let history = getPriceHistory();
+            const now = Date.now();
+            
+            history.push({
+                price: price,
+                timestamp: now
+            });
+            
+            const oneDayAgo = now - (24 * 60 * 60 * 1000);
+            history = history.filter(point => point.timestamp > oneDayAgo);
+            
+            if (history.length > MAX_DATA_POINTS) {
+                const step = Math.ceil(history.length / MAX_DATA_POINTS);
+                history = history.filter((_, index) => index % step === 0);
+            }
+            
+            savePriceHistory(history);
+            return history;
+        }
+
+        function initChart() {
+            const ctx = document.getElementById('priceChart').getContext('2d');
+            
+            const chartConfig = {
+                type: 'line',
+                data: {
+                    labels: [],
+                    datasets: [{
+                        label: 'Price (USD)',
+                        data: [],
+                        borderColor: 'rgb(102, 126, 234)',
+                        backgroundColor: 'rgba(102, 126, 234, 0.1)',
+                        borderWidth: 2,
+                        tension: 0.4,
+                        pointRadius: 0,
+                        pointHoverRadius: 4,
+                        pointHoverBackgroundColor: 'rgb(102, 126, 234)',
+                        fill: true
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    interaction: {
+                        intersect: false,
+                        mode: 'index'
+                    },
+                    plugins: {
+                        legend: {
+                            display: false
+                        },
+                        tooltip: {
+                            callbacks: {
+                                label: function(context) {
+                                    return 'Price: ' + formatCurrency(context.parsed.y);
+                                }
+                            }
+                        }
+                    },
+                    scales: {
+                        x: {
+                            grid: {
+                                color: 'rgba(255, 255, 255, 0.05)',
+                                drawBorder: false
+                            },
+                            ticks: {
+                                color: '#999',
+                                maxRotation: 0,
+                                autoSkip: true,
+                                maxTicksLimit: 6
+                            }
+                        },
+                        y: {
+                            grid: {
+                                color: 'rgba(255, 255, 255, 0.05)',
+                                drawBorder: false
+                            },
+                            ticks: {
+                                color: '#999',
+                                callback: function(value) {
+                                    return '$' + value.toFixed(4);
+                                }
+                            },
+                            beginAtZero: false
+                        }
+                    }
+                }
+            };
+            
+            priceChart = new Chart(ctx, chartConfig);
+        }
+
+        function updateChart() {
+            const history = getPriceHistory();
+            
+            if (history.length > 1) {
+                document.getElementById('chartContainer').style.display = 'block';
+                
+                const labels = history.map(point => {
+                    const date = new Date(point.timestamp);
+                    const hours = date.getHours();
+                    const minutes = date.getMinutes();
+                    return hours + ':' + minutes.toString().padStart(2, '0');
+                });
+                
+                const prices = history.map(point => point.price);
+                
+                if (!priceChart) {
+                    initChart();
+                }
+                
+                priceChart.data.labels = labels;
+                priceChart.data.datasets[0].data = prices;
+                priceChart.update('none');
+                
+                const firstPrice = history[0].price;
+                const lastPrice = history[history.length - 1].price;
+                const priceChange = ((lastPrice - firstPrice) / firstPrice) * 100;
+                
+                const priceChangeEl = document.getElementById('priceChange');
+                priceChangeEl.textContent = (priceChange >= 0 ? '+' : '') + priceChange.toFixed(2) + '%';
+                priceChangeEl.className = 'price-change ' + (priceChange >= 0 ? 'positive' : 'negative');
+            }
+        }
+
         async function loadTokenData() {
             const contentDiv = document.getElementById('content');
             
@@ -375,68 +573,69 @@
                 if (data.success) {
                     const tokenData = data.data;
                     
-                    contentDiv.innerHTML = `
-                        <div class="stats-grid">
-                            <div class="stat-card">
-                                <div class="stat-value">
-                                    ${formatNumber(tokenData.holders)}
-                                    ${tokenData.isEstimated ? '<span class="estimated-badge">Estimated</span>' : ''}
-                                </div>
-                                <div class="stat-label">Holders</div>
-                            </div>
-                            
-                            <div class="stat-card">
-                                <div class="stat-value">
-                                    ${tokenData.price > 0 ? formatCurrency(tokenData.price) : 'N/A'}
-                                </div>
-                                <div class="stat-label">Price</div>
-                            </div>
-                            
-                            <div class="stat-card">
-                                <div class="stat-value">
-                                    ${tokenData.marketCap > 0 ? formatCurrency(tokenData.marketCap) : 'N/A'}
-                                </div>
-                                <div class="stat-label">Market Cap</div>
-                            </div>
-                            
-                            <div class="stat-card">
-                                <div class="stat-value">${formatNumber(Math.round(tokenData.totalSupply))}</div>
-                                <div class="stat-label">Total Supply</div>
-                            </div>
-                            
-                            <div class="stat-card">
-                                <div class="stat-value">${tokenData.topHoldersPercentage}%</div>
-                                <div class="stat-label">Top ${tokenData.topHolders} Holders</div>
-                            </div>
-                            
-                            <div class="stat-card">
-                                <div class="stat-value">${tokenData.decimals}</div>
-                                <div class="stat-label">Decimals</div>
-                            </div>
-                        </div>
+                    if (tokenData.price > 0) {
+                        addPricePoint(tokenData.price);
+                        updateChart();
+                    }
+                    
+                    contentDiv.innerHTML = '<div class="stats-grid">' +
+                        '<div class="stat-card">' +
+                            '<div class="stat-value">' +
+                                formatNumber(tokenData.holders) +
+                                (tokenData.isEstimated ? '<span class="estimated-badge">Estimated</span>' : '') +
+                            '</div>' +
+                            '<div class="stat-label">Holders</div>' +
+                        '</div>' +
                         
-                        <button class="refresh-btn" onclick="loadTokenData()">Refresh Data</button>
+                        '<div class="stat-card">' +
+                            '<div class="stat-value">' +
+                                (tokenData.price > 0 ? formatCurrency(tokenData.price) : 'N/A') +
+                            '</div>' +
+                            '<div class="stat-label">Price</div>' +
+                        '</div>' +
                         
-                        <div class="last-updated">
-                            Last updated: ${new Date(tokenData.timestamp).toLocaleString()}
-                        </div>
-                    `;
+                        '<div class="stat-card">' +
+                            '<div class="stat-value">' +
+                                (tokenData.marketCap > 0 ? formatCurrency(tokenData.marketCap) : 'N/A') +
+                            '</div>' +
+                            '<div class="stat-label">Market Cap</div>' +
+                        '</div>' +
+                        
+                        '<div class="stat-card">' +
+                            '<div class="stat-value">' + formatNumber(Math.round(tokenData.totalSupply)) + '</div>' +
+                            '<div class="stat-label">Total Supply</div>' +
+                        '</div>' +
+                        
+                        '<div class="stat-card">' +
+                            '<div class="stat-value">' + tokenData.topHoldersPercentage + '%</div>' +
+                            '<div class="stat-label">Top ' + tokenData.topHolders + ' Holders</div>' +
+                        '</div>' +
+                        
+                        '<div class="stat-card">' +
+                            '<div class="stat-value">' + tokenData.decimals + '</div>' +
+                            '<div class="stat-label">Decimals</div>' +
+                        '</div>' +
+                    '</div>' +
+                    
+                    '<button class="refresh-btn" onclick="loadTokenData()">Refresh Data</button>' +
+                    
+                    '<div class="last-updated">' +
+                        'Last updated: ' + new Date(tokenData.timestamp).toLocaleString() +
+                    '</div>';
                 } else {
                     throw new Error(data.error || 'Failed to load data');
                 }
             } catch (error) {
                 console.error('Error details:', error);
-                contentDiv.innerHTML = `
-                    <div class="error">
-                        <p>Error loading token data: ${error.message}</p>
-                        <p style="font-size: 12px; margin-top: 10px; color: #999;">
-                            Make sure to update the API_URL in the code with your Cloudflare Worker URL
-                        </p>
-                        <button class="refresh-btn" onclick="loadTokenData()" style="margin-top: 20px;">
-                            Try Again
-                        </button>
-                    </div>
-                `;
+                contentDiv.innerHTML = '<div class="error">' +
+                    '<p>Error loading token data: ' + error.message + '</p>' +
+                    '<p style="font-size: 12px; margin-top: 10px; color: #999;">' +
+                        'Make sure to update the API_URL in the code with your Cloudflare Worker URL' +
+                    '</p>' +
+                    '<button class="refresh-btn" onclick="loadTokenData()" style="margin-top: 20px;">' +
+                        'Try Again' +
+                    '</button>' +
+                '</div>';
             }
         }
 
