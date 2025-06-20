@@ -34,13 +34,110 @@
 
         .logo-container {
             text-align: center;
-            margin-bottom: 40px;
+            margin-bottom: 30px;
         }
 
         .logo {
             width: 300px;
             max-width: 100%;
             height: auto;
+        }
+
+        .contract-info {
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 12px;
+            padding: 20px;
+            margin-bottom: 30px;
+            text-align: center;
+        }
+
+        .contract-label {
+            font-size: 12px;
+            color: #999;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            margin-bottom: 10px;
+        }
+
+        .contract-address {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 12px;
+            background: rgba(0, 0, 0, 0.3);
+            padding: 12px 16px;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            margin-bottom: 15px;
+        }
+
+        .contract-address:hover {
+            background: rgba(255, 255, 255, 0.1);
+            transform: translateY(-1px);
+        }
+
+        .contract-address:active {
+            transform: translateY(0);
+        }
+
+        .address-text {
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+            color: #fff;
+            word-break: break-all;
+        }
+
+        .copy-icon {
+            width: 16px;
+            height: 16px;
+            fill: #999;
+            transition: fill 0.3s ease;
+        }
+
+        .contract-address:hover .copy-icon {
+            fill: #fff;
+        }
+
+        .copy-feedback {
+            position: absolute;
+            background: #4caf50;
+            color: white;
+            padding: 8px 16px;
+            border-radius: 6px;
+            font-size: 12px;
+            pointer-events: none;
+            opacity: 0;
+            transform: translateY(-10px);
+            transition: all 0.3s ease;
+            z-index: 1000;
+        }
+
+        .copy-feedback.show {
+            opacity: 1;
+            transform: translateY(-20px);
+        }
+
+        .solscan-link {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            color: #667eea;
+            text-decoration: none;
+            font-size: 14px;
+            transition: all 0.3s ease;
+        }
+
+        .solscan-link:hover {
+            color: #764ba2;
+            transform: translateY(-1px);
+        }
+
+        .external-icon {
+            width: 14px;
+            height: 14px;
+            fill: currentColor;
         }
 
         .stats-grid {
@@ -143,6 +240,17 @@
             border-radius: 4px;
             margin-left: 8px;
         }
+
+        @media (max-width: 480px) {
+            .contract-address {
+                flex-direction: column;
+                gap: 8px;
+            }
+            
+            .address-text {
+                font-size: 10px;
+            }
+        }
     </style>
 </head>
 <body>
@@ -164,6 +272,23 @@
             </svg>
         </div>
 
+        <div class="contract-info">
+            <div class="contract-label">Contract Address</div>
+            <div class="contract-address" onclick="copyToClipboard('C7heQqfNzdMbUFQwcHkL9FvdwsFsDRBnfwZDDyWYCLTZ', event)">
+                <span class="address-text">C7heQqfNzdMbUFQwcHkL9FvdwsFsDRBnfwZDDyWYCLTZ</span>
+                <svg class="copy-icon" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                    <path d="M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z"/>
+                </svg>
+            </div>
+            <div class="copy-feedback" id="copyFeedback">Copied!</div>
+            <a href="https://solscan.io/token/C7heQqfNzdMbUFQwcHkL9FvdwsFsDRBnfwZDDyWYCLTZ" target="_blank" rel="noopener noreferrer" class="solscan-link">
+                View on Solscan
+                <svg class="external-icon" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                    <path d="M19 19H5V5h7V3H5c-1.11 0-2 .9-2 2v14c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2v-7h-2v7zM14 3v2h3.59l-9.83 9.83 1.41 1.41L19 6.41V10h2V3h-7z"/>
+                </svg>
+            </a>
+        </div>
+
         <div id="content">
             <div class="loading">
                 <div class="loading-spinner"></div>
@@ -176,6 +301,7 @@
         // IMPORTANT: Replace this with your actual Cloudflare Worker URL
         // Example: 'https://colla-holders.your-username.workers.dev'
         const API_URL = 'https://collatholders.larsoui-dbc.workers.dev';
+        const TOKEN_ADDRESS = 'C7heQqfNzdMbUFQwcHkL9FvdwsFsDRBnfwZDDyWYCLTZ';
         
         function formatNumber(num) {
             return new Intl.NumberFormat('en-US').format(num);
@@ -188,6 +314,55 @@
                 minimumFractionDigits: 2,
                 maximumFractionDigits: num < 0.01 ? 6 : 2
             }).format(num);
+        }
+
+        function copyToClipboard(text, event) {
+            event.stopPropagation();
+            
+            // Try modern clipboard API first
+            if (navigator.clipboard && navigator.clipboard.writeText) {
+                navigator.clipboard.writeText(text).then(() => {
+                    showCopyFeedback(event);
+                }).catch(() => {
+                    fallbackCopy(text, event);
+                });
+            } else {
+                fallbackCopy(text, event);
+            }
+        }
+
+        function fallbackCopy(text, event) {
+            // Fallback for older browsers
+            const textArea = document.createElement("textarea");
+            textArea.value = text;
+            textArea.style.position = "fixed";
+            textArea.style.left = "-999999px";
+            textArea.style.top = "-999999px";
+            document.body.appendChild(textArea);
+            textArea.focus();
+            textArea.select();
+            
+            try {
+                document.execCommand('copy');
+                showCopyFeedback(event);
+            } catch (err) {
+                console.error('Failed to copy:', err);
+            }
+            
+            textArea.remove();
+        }
+
+        function showCopyFeedback(event) {
+            const feedback = document.getElementById('copyFeedback');
+            const rect = event.currentTarget.getBoundingClientRect();
+            
+            feedback.style.left = rect.left + rect.width / 2 - feedback.offsetWidth / 2 + 'px';
+            feedback.style.top = rect.top - 10 + 'px';
+            feedback.classList.add('show');
+            
+            setTimeout(() => {
+                feedback.classList.remove('show');
+            }, 2000);
         }
 
         async function loadTokenData() {
